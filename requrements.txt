@@ -1,0 +1,14 @@
+json
+torch
+fastapi
+requests
+pandas
+numpy
+pathlib
+datetime
+sklearn.preprocessing
+sklearn.linear_model
+yfinance
+torch.nn
+torch.optim
+torch.utils.data

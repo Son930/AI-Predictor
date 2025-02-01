@@ -1,0 +1,20 @@
+How to run the backend
+
+run main.py using terminal
+
+uvicorn main:app --reload --port 8300
+
+use different port if not working
+
+
+
+
+
+
+How to run the front end
+
+install all npm dependencies & run in terminal
+
+npm run dev
+
+
