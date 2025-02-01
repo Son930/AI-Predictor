@@ -280,3 +280,6 @@ async def predict(ticker: str):
     except Exception as e:
         print(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+
+
+print("end of program, thank you")
