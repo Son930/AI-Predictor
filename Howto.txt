@@ -1,20 +1,21 @@
-How to run the backend
+############################ Step 1 ###############################
 
-run main.py using terminal
+In the root directory of the project run:
+    pip install -r requrements.txt
 
-uvicorn main:app --reload --port 8300
+############################ How to run the backend ###############################
 
-use different port if not working
+- run main.py using terminal
+    uvicorn main:app --reload --port 8300
 
+- use different port if not working
 
+############################ How to run the front end ##############################
 
+- install all npm dependencies & run in terminal
+    npm install
 
-
-
-How to run the front end
-
-install all npm dependencies & run in terminal
-
-npm run dev
+- run the front end
+    npm run dev
 
 

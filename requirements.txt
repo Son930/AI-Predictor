@@ -1,0 +1,10 @@
+torch
+fastapi
+requests
+pandas
+numpy
+pathlib
+datetime
+yfinance
+scikit-learn
+uvicorn

@@ -44,11 +44,13 @@ class StockDataset(Dataset):
     def __init__(self, df, lookback=30):
         self.df = df
         self.lookback = lookback
-        self.features = df.drop(columns=['close', 'trade_signal'], errors='ignore').values # errors='ignore' handles missing columns in prediction
+        self.features = df.drop(columns=['close', 'trade_signal'], errors='ignore').values
         self.target = df['close'].values
         self.scaler = StandardScaler()
-        self.features = self.scaler.fit_transform(self.features)
-        self.input_size = self.features.shape[1] # Store input size
+
+        # Ensure no NaN values in features
+        self.features = np.nan_to_num(self.scaler.fit_transform(self.features))
+        self.input_size = self.features.shape[1]
 
     def __len__(self):
         return len(self.df) - self.lookback
@@ -56,6 +58,11 @@ class StockDataset(Dataset):
     def __getitem__(self, idx):
         x = self.features[idx:idx + self.lookback]
         y = self.target[idx + self.lookback]
+
+        # Replace NaN values with zeros (as a last resort)
+        x = np.nan_to_num(x)
+        y = np.nan_to_num(y)
+
         return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
 
 
@@ -70,8 +77,8 @@ class TemporalFusionTransformer(nn.Module):
         output = self.fc(lstm_out[:, -1, :])
         return output
 
-
-def fetch_tiingo_data(ticker: str, data_type: str, years: int):
+@app.get("/stock/{ticker}")
+def fetch_tiingo_data(ticker: str, data_type: str, years: int, return_df: bool = False):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=years * 365)
 
@@ -82,6 +89,10 @@ def fetch_tiingo_data(ticker: str, data_type: str, years: int):
             response.raise_for_status()
             data = response.json()
             df = pd.DataFrame(data)
+
+            if df.empty:
+                return None if return_df else []  # Return None for backend, empty list for frontend
+
             df['date'] = pd.to_datetime(df['date'])
             df = df.set_index('date')
 
@@ -89,24 +100,23 @@ def fetch_tiingo_data(ticker: str, data_type: str, years: int):
             if 'volume' in df.columns:
                 required_cols.append('volume')
 
-            if any(col in df.columns for col in required_cols):
-                for col in required_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
+            for col in required_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
 
-                df = df[[col for col in required_cols if col in df.columns]]
-                return df
-            else:
-                print(f"Error: No required price data ('close', 'high', 'low', 'open', 'volume') found for {ticker}")
-                return None
+            if return_df:
+                return df  # Return DataFrame for backend
+            return df.to_dict(orient="records")  # Return list for frontend
+
         except requests.exceptions.RequestException as e:
             print(f"Tiingo API Error: {e}")
-            return None
+            return None if return_df else []
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             print(f"Error parsing JSON from Tiingo: {e}")
-            return None
-    else:
-        return None
+            return None if return_df else []
+
+    return None if return_df else []
+
 
 
 def generate_trading_signals(df):
@@ -117,6 +127,9 @@ def generate_trading_signals(df):
     print(f"DF Index type: {df.index.dtype}")
 
     try:
+        df.index = pd.to_datetime(df.index, errors='coerce')
+        print(f"DF Index type after conversion: {type(df.index)}")
+
         df['SMA'] = df['close'].rolling(window=20).mean()
         df['LMA'] = df['close'].rolling(window=50).mean()
         df['RSI'] = calculate_rsi(df['close'], window=14)
@@ -135,7 +148,6 @@ def generate_trading_signals(df):
         df['Month_of_Year'] = df.index.month
 
         df['trade_signal'] = 'Hold'
-        df.index = pd.to_datetime(df.index)
         df.loc[df['SMA'] > df['LMA'], 'trade_signal'] = 'Buy'
         df.loc[df['SMA'] < df['LMA'], 'trade_signal'] = 'Sell'
 
@@ -220,8 +232,13 @@ async def train_model(request: Request): # Use Request object
         if not ticker:
             raise HTTPException(status_code=400, detail="Ticker is required.")
         df = fetch_tiingo_data(ticker, data_type="price", years=3)
-        if df is None:
+        if df is None or not isinstance(df, list):  # Ensure it's a valid list
             raise HTTPException(status_code=400, detail="Failed to fetch data from Tiingo.")
+
+        df = pd.DataFrame(df)  # Convert the list to a DataFrame
+
+        if df.empty:
+            raise HTTPException(status_code=400, detail="No data available for training.")
 
         df = generate_trading_signals(df)
         train_tft_model(df)
@@ -246,13 +263,19 @@ async def predict(ticker: str):
             model = TemporalFusionTransformer(input_size, hidden_size=64, output_size=1)
             model.load_state_dict(checkpoint['model_state_dict'])
             model.eval()
-            print(f"Model loaded successfully from: {model_path}")
+            print(f"✅ Model loaded successfully from: {model_path}")
         except Exception as e:
-            print(f"Error loading model: {e}")
+            print(f"❌ Error loading model: {e}")
             raise HTTPException(status_code=500, detail="Model loading error")
 
         # 1. Fetch Recent Data (using the ticker)
-        df = fetch_tiingo_data(ticker, data_type="price", years=1)
+        raw_data = fetch_tiingo_data(ticker, data_type="price", years=1)
+
+        # Convert list to DataFrame if necessary
+        if isinstance(raw_data, list):
+            df = pd.DataFrame(raw_data)
+        else:
+            df = raw_data  # Assume it's already a DataFrame
 
         if df is None or df.empty:
             raise HTTPException(status_code=400, detail=f"No data found for {ticker}")
@@ -268,7 +291,7 @@ async def predict(ticker: str):
         for x_batch, _ in dataloader:
             with torch.no_grad():
                 raw_prediction = model(x_batch).item()
-                print(f"Raw Prediction: {raw_prediction}")  # Debug the raw model output
+                print(f"🔍 Raw Prediction: {raw_prediction}")  # Debug the raw model output
                 if not (raw_prediction == float('inf') or raw_prediction == float(
                         '-inf') or raw_prediction != raw_prediction):  # NaN check
                     predictions.append(raw_prediction)
@@ -278,8 +301,9 @@ async def predict(ticker: str):
         return {"prediction": predictions[-1] if predictions else None}
 
     except Exception as e:
-        print(f"Prediction error: {e}")
+        print(f"❌ Prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+
 
 
 print("end of program, thank you")

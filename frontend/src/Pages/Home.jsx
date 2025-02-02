@@ -19,7 +19,7 @@ export default function StockDataFetcher() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8300/stock/${ticker}?data_type=${dataType}&years=${years}&forecast_days=${forecastDays}` // Include years and forecast_days
+        `http://127.0.0.1:8400/stock/${ticker}?data_type=${dataType}&years=${years}&forecast_days=${forecastDays}` // Include years and forecast_days
       );
 
       if (!response.ok) {
@@ -42,7 +42,7 @@ export default function StockDataFetcher() {
     setError("");
 
     try {
-      const response = await fetch(`http://127.0.0.1:8300/train_model`, {
+      const response = await fetch(`http://127.0.0.1:8400/train_model`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker: ticker }),
@@ -64,31 +64,31 @@ export default function StockDataFetcher() {
     }
   };
 
- const handlePredict = async () => {
-   setLoading(true);
-   setError("");
+  const handlePredict = async () => {
+    setLoading(true);
+    setError("");
 
-   try {
-     const response = await fetch(`http://127.0.0.1:8300/predict`, {
-       method: "GET",
-       params: { ticker: ticker }, // Correct: Using query parameters
-     }); // Removed Content-Type header
+    try {
+      const response = await fetch(`http://127.0.0.1:8400/predict`, {
+        method: "GET",
+        params: { ticker: ticker }, // Correct: Using query parameters
+      }); // Removed Content-Type header
 
-     if (!response.ok) {
-       const errorData = await response.json();
-       throw new Error(errorData.detail || "Failed to make prediction");
-     }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to make prediction");
+      }
 
-     const prediction = await response.json();
-     setStockData(prediction);
-     alert("Prediction completed!");
-   } catch (err) {
-     setError(err.message);
-     console.error("Error making prediction:", err);
-   } finally {
-     setLoading(false);
-   }
- };
+      const prediction = await response.json();
+      setStockData(prediction);
+      alert("Prediction completed!");
+    } catch (err) {
+      setError(err.message);
+      console.error("Error making prediction:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
   const renderHistoricalData = () => {
     if (stockData && stockData.historical_data) {
       const data = stockData.historical_data;
@@ -258,12 +258,31 @@ export default function StockDataFetcher() {
       {error && (
         <p className="text-white bg-red-700 p-2 rounded-md border">{error}</p>
       )}
-      {stockData && stockData.real_time_price && (
+      {stockData && Array.isArray(stockData) && stockData.length > 0 && (
         <div>
           <h3>Real-Time Price</h3>
-          <pre className="bg-gray-800 text-green-400 p-4 rounded-md overflow-auto">
-            {JSON.stringify(stockData.real_time_price, null, 2)}
-          </pre>
+          <table className="table-auto w-full border-collapse border border-gray-300">
+            <thead>
+              <tr className="bg-gray-100">
+                {Object.keys(stockData[0]).map((key) => (
+                  <th key={key} className="border border-gray-300 px-4 py-2">
+                    {key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {stockData.map((item, index) => (
+                <tr key={index} className={index % 2 === 0 ? "bg-gray-50" : ""}>
+                  {Object.values(item).map((value, idx) => (
+                    <td key={idx} className="border border-gray-300 px-4 py-2">
+                      {value}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {renderHistoricalData()}
