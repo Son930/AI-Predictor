@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# IDEs and Editors
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Model files (can be large)
+*.joblib
+*.pkl
+*.pth
+*.h5
+*.model
+*.pt
+
+# Build outputs
+dist/
+build/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+Thumbs.db
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Large binary files
+*.dll
+*.exe
+*.lib
+*.pyd
+*.ipch
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Frontend build
+frontend/dist/
+frontend/dist-ssr/
+
+# Python cache
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+

@@ -1,4 +1,6 @@
 import json
+import signal
+
 import torch
 from fastapi import FastAPI, HTTPException,Request
 import requests
@@ -20,6 +22,8 @@ from feature_engineering import (
 )
 
 app = FastAPI()
+
+server_is_healthy = True
 
 origins = [
     "http://localhost:5173",
@@ -76,6 +80,16 @@ class TemporalFusionTransformer(nn.Module):
         lstm_out, _ = self.lstm(x) # Removed hn, cn as they are not used
         output = self.fc(lstm_out[:, -1, :])
         return output
+
+
+
+def shutdown_handler(signum, frame):
+    global server_is_healthy
+    server_is_healthy = False
+    print("Server is shutting down...")
+
+
+signal.signal(signal.SIGTERM, shutdown_handler)
 
 @app.get("/stock/{ticker}")
 def fetch_tiingo_data(ticker: str, data_type: str, years: int, return_df: bool = False):
@@ -251,36 +265,81 @@ async def train_model(request: Request): # Use Request object
         print(f"Error in train_model: {e}")
         raise HTTPException(status_code=500, detail=f"Error in train_model: {e}")
 
+# @app.get("/predict")
+# async def predict(ticker: str):
+#     try:
+#         try:
+#             # Load the Pre-trained Model
+#             model_dir = Path(__file__).parent / "AImodelSave"
+#             model_path = model_dir / "tft_model.pth"
+#             checkpoint = torch.load(str(model_path))
+#             input_size = checkpoint['input_size']
+#             model = TemporalFusionTransformer(input_size, hidden_size=64, output_size=1)
+#             model.load_state_dict(checkpoint['model_state_dict'])
+#             model.eval()
+#             print(f"✅ Model loaded successfully from: {model_path}")
+#         except Exception as e:
+#             print(f"❌ Error loading model: {e}")
+#             raise HTTPException(status_code=500, detail="Model loading error")
+#
+#         # 1. Fetch Recent Data (using the ticker)
+#         raw_data = fetch_tiingo_data(ticker, data_type="price", years=1)
+#
+#         # Convert list to DataFrame if necessary
+#         if isinstance(raw_data, list):
+#             df = pd.DataFrame(raw_data)
+#         else:
+#             df = raw_data  # Assume it's already a DataFrame
+#
+#         if df is None or df.empty:
+#             raise HTTPException(status_code=400, detail=f"No data found for {ticker}")
+#
+#         # 2. Calculate Features (same as during training)
+#         df = generate_trading_signals(df)
+#
+#         # 3. Prepare Input for Model
+#         dataset = StockDataset(df)
+#         dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+#
+#         predictions = []
+#         for x_batch, _ in dataloader:
+#             with torch.no_grad():
+#                 raw_prediction = model(x_batch).item()
+#                 print(f"🔍 Raw Prediction: {raw_prediction}")  # Debug the raw model output
+#                 if not (raw_prediction == float('inf') or raw_prediction == float(
+#                         '-inf') or raw_prediction != raw_prediction):  # NaN check
+#                     predictions.append(raw_prediction)
+#                 else:
+#                     predictions.append(None)
+#
+#         return {"prediction": predictions[-1] if predictions else None}
+#
+#     except Exception as e:
+#         print(f"❌ Prediction error: {e}")
+#         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+
+
+
 @app.get("/predict")
 async def predict(ticker: str):
     try:
-        try:
-            # Load the Pre-trained Model
-            model_dir = Path(__file__).parent / "AImodelSave"
-            model_path = model_dir / "tft_model.pth"
-            checkpoint = torch.load(str(model_path))
-            input_size = checkpoint['input_size']
-            model = TemporalFusionTransformer(input_size, hidden_size=64, output_size=1)
-            model.load_state_dict(checkpoint['model_state_dict'])
-            model.eval()
-            print(f"✅ Model loaded successfully from: {model_path}")
-        except Exception as e:
-            print(f"❌ Error loading model: {e}")
-            raise HTTPException(status_code=500, detail="Model loading error")
+        # Load Pre-trained Model
+        model_dir = Path(__file__).parent / "AImodelSave"
+        model_path = model_dir / "tft_model.pth"
+        checkpoint = torch.load(str(model_path))
+        input_size = checkpoint['input_size']
+        model = TemporalFusionTransformer(input_size, hidden_size=64, output_size=1)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
 
-        # 1. Fetch Recent Data (using the ticker)
+        # 1. Fetch Recent Data
         raw_data = fetch_tiingo_data(ticker, data_type="price", years=1)
-
-        # Convert list to DataFrame if necessary
-        if isinstance(raw_data, list):
-            df = pd.DataFrame(raw_data)
-        else:
-            df = raw_data  # Assume it's already a DataFrame
+        df = pd.DataFrame(raw_data) if isinstance(raw_data, list) else raw_data
 
         if df is None or df.empty:
             raise HTTPException(status_code=400, detail=f"No data found for {ticker}")
 
-        # 2. Calculate Features (same as during training)
+        # 2. Calculate Features
         df = generate_trading_signals(df)
 
         # 3. Prepare Input for Model
@@ -291,19 +350,48 @@ async def predict(ticker: str):
         for x_batch, _ in dataloader:
             with torch.no_grad():
                 raw_prediction = model(x_batch).item()
-                print(f"🔍 Raw Prediction: {raw_prediction}")  # Debug the raw model output
-                if not (raw_prediction == float('inf') or raw_prediction == float(
-                        '-inf') or raw_prediction != raw_prediction):  # NaN check
-                    predictions.append(raw_prediction)
-                else:
-                    predictions.append(None)
+                predictions.append(raw_prediction)
 
-        return {"prediction": predictions[-1] if predictions else None}
+        predicted_price = predictions[-1] if predictions else None
+
+        # 4. Generate Buy/Sell/Hold Signal
+        latest_row = df.iloc[-1]
+        sma = latest_row["SMA"]
+        lma = latest_row["LMA"]
+        rsi = latest_row["RSI"]
+
+        # Simple Rule-Based Decision
+        if predicted_price is not None:
+            if sma > lma and rsi < 70:
+                trade_signal = "Buy"
+            elif sma < lma and rsi > 30:
+                trade_signal = "Sell"
+            else:
+                trade_signal = "Hold"
+        else:
+            trade_signal = "Hold"
+
+        return {
+            "predicted_price": predicted_price,
+            "trade_signal": trade_signal
+        }
 
     except Exception as e:
-        print(f"❌ Prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
 
+@app.get("/health")
+def health_check():
+    if server_is_healthy:
+        return {"status": "healthy"}
+    else:
+        return {"status": "unhealthy"}
 
-print("end of program, thank you")
+
+@app.post("/sent-anal")
+def sentimental_anal():
+    url = 'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=AAPL&apikey=demo'
+    r = requests.get(url)
+    data = r.json()
+
+    return data

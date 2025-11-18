@@ -1,0 +1,21 @@
+# Strategy allocation rules
+high_volatility:
+  strategy: "SCALPING"
+  emotion: "CONFIDENT"
+  max_positions: 3
+  lot_size: 0.02
+  data_refresh_interval: 60  # seconds
+  
+medium_volatility:
+  strategy: "BALANCED"
+  emotion: "STANDARD" 
+  max_positions: 2
+  lot_size: 0.01
+  data_refresh_interval: 300
+  
+low_volatility:
+  strategy: "SWING"
+  emotion: "CAUTIOUS"
+  max_positions: 1 
+  lot_size: 0.005
+  data_refresh_interval: 900
